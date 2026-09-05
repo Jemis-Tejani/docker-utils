@@ -1,0 +1,12 @@
+postgres-data
+redis-data
+registry-data
+spark-data
+chromadb-data
+keycloak-data
+mysql-data
+mongodb-data
+mssql-data
+.env
+.env.local
+ngrok-data/auth-config.yml
