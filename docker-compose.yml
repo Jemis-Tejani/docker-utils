@@ -1,0 +1,197 @@
+# ==============================================================================
+# Docker Utils - Local Development Environment
+# Optimized for low RAM, CPU, and storage overhead on Mac (Apple Silicon)
+# ==============================================================================
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "2"
+
+services:
+  keycloak:
+    image: harbor-registry.dataphion.com/iidrak/keycloak:latest-arm64
+    ports:
+      - "8080:8080"
+    environment:
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Cap JVM heap to 384MB max (prevents Keycloak from taking 1GB+ RAM locally)
+      JAVA_OPTS_APPEND: "-Xms64m -Xmx384m -XX:MaxMetaspaceSize=192m"
+    mem_limit: 512m
+    volumes:
+      - ./keycloak-data:/opt/keycloak/data
+    command: start --hostname-strict=false
+    logging: *default-logging
+
+  spark:
+    image: apache/spark:4.0.0
+    user: root
+    ports:
+      - "15002:15002"
+      - "4040:4040"
+    environment:
+      SPARK_LOCAL_DIRS: /opt/spark/persistent/local
+      SPARK_DRIVER_MEMORY: "512m"
+    mem_limit: 1024m
+    volumes:
+      - ./spark-data:/opt/spark/persistent
+      - /var/folders:/var/folders
+    command: >
+      /opt/spark/bin/spark-submit
+      --class org.apache.spark.sql.connect.service.SparkConnectServer
+      --driver-memory 512m
+      --conf spark.sql.warehouse.dir=/opt/spark/persistent/warehouse
+      --conf spark.local.dir=/opt/spark/persistent/local
+      --conf spark.jars.ivy=/opt/spark/persistent/ivy
+      local:///opt/spark/jars/spark-connect_2.13-4.0.0.jar
+    logging: *default-logging
+
+  redis:
+    image: redis:8.8.0
+    ports:
+      - "6379:6379"
+    mem_limit: 64m
+    volumes:
+      - ./redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 48mb --maxmemory-policy allkeys-lru
+    logging: *default-logging
+
+  registry:
+    image: registry:2
+    ports:
+      - "5001:5000"
+    mem_limit: 128m
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    volumes:
+      - ./registry-data:/var/lib/registry
+    logging: *default-logging
+
+  pgvector:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    mem_limit: 256m
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c shared_buffers=64MB
+      -c work_mem=4MB
+      -c max_connections=50
+    logging: *default-logging
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    ports:
+      - "4041:4040"
+    mem_limit: 64m
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    volumes:
+      - ./ngrok-data:/var/lib/ngrok
+    command: start --all --config=/var/lib/ngrok/ngrok.yml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging: *default-logging
+
+  chromadb:
+    image: chromadb/chroma:1.5.3
+    container_name: local-chromadb
+    profiles: ["optional"]
+    ports:
+      - "8000:8000"
+    mem_limit: 256m
+    volumes:
+      - ./chromadb-data:/data
+    logging: *default-logging
+
+  # ==============================================================================
+  # Local Catalog Connectors (Profile: "connectors")
+  # Start individually: docker compose up -d <service_name>
+  # Start all connectors: docker compose --profile connectors up -d
+  # ==============================================================================
+
+  mysql:
+    image: mysql:8.0
+    container_name: local-mysql
+    profiles: ["connectors"]
+    ports:
+      - "3307:3306"
+    mem_limit: 256m
+    command: "--innodb_buffer_pool_size=64M --disable-log-bin"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+    logging: *default-logging
+
+  mongodb:
+    image: mongo:7.0
+    container_name: local-mongodb
+    profiles: ["connectors"]
+    ports:
+      - "27017:27017"
+    mem_limit: 256m
+    command: "--wiredTigerCacheSizeGB=0.25"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+    volumes:
+      - ./mongodb-data:/data/db
+    logging: *default-logging
+
+  mssql:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    container_name: local-mssql
+    profiles: ["connectors"]
+    ports:
+      - "1433:1433"
+    mem_limit: 512m
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: "Developer"
+      MSSQL_MEMORY_LIMIT_MB: "384"
+    volumes:
+      - ./mssql-data:/var/opt/mssql
+    logging: *default-logging
+
+  presto:
+    image: prestodb/presto:latest
+    container_name: local-presto
+    profiles: ["connectors"]
+    ports:
+      - "8089:8080"
+    mem_limit: 512m
+    logging: *default-logging
+
+  trino:
+    image: trinodb/trino:latest
+    container_name: local-trino
+    profiles: ["connectors"]
+    ports:
+      - "8082:8080"
+    mem_limit: 512m
+    logging: *default-logging
+
+  sybase:
+    image: datagrip/sybase:16.0
+    container_name: local-sybase
+    platform: linux/amd64
+    profiles: ["connectors"]
+    ports:
+      - "5002:5000"
+    mem_limit: 512m
+    logging: *default-logging
