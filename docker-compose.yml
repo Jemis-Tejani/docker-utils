@@ -1,0 +1,83 @@
+services:
+  spark:
+    image: apache/spark:4.0.0
+    user: root
+    ports:
+      - "15002:15002"
+      - "4040:4040"
+    environment:
+      SPARK_LOCAL_DIRS: /opt/spark/persistent/local
+    volumes:
+      - ./spark-data:/opt/spark/persistent
+      - /var/folders:/var/folders
+    command: >
+      /opt/spark/bin/spark-submit
+      --class org.apache.spark.sql.connect.service.SparkConnectServer
+      --conf spark.sql.warehouse.dir=/opt/spark/persistent/warehouse
+      --conf spark.local.dir=/opt/spark/persistent/local
+      --conf spark.jars.ivy=/opt/spark/persistent/ivy
+      local:///opt/spark/jars/spark-connect_2.13-4.0.0.jar
+
+  redis:
+    image: redis:8.8.0
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
+    command: redis-server --appendonly yes
+
+  registry:
+    image: registry:2
+    ports:
+      - "5001:5000"
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    volumes:
+      - ./registry-data:/var/lib/registry
+
+  pgvector:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d
+
+  chromadb:
+    image: chromadb/chroma:1.5.3
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chromadb-data:/data
+
+  keycloak:
+    image: harbor-registry.dataphion.com/iidrak/keycloak:1.1.4-arm64
+    ports:
+      - "8080:8080"
+    environment:
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - ./keycloak-data:/opt/keycloak/data
+    command: start --hostname-strict=false
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    ports:
+      - "4041:4040"
+    environment:
+      NGROK_AUTHTOKEN: "39bpO7wkGqbRYfezbBxVrJIkrko_6kfNacgJkcbNcLqttpCiA"
+    volumes:
+      - ./ngrok-data:/var/lib/ngrok
+    command: >
+      http
+      --config=/var/lib/ngrok/ngrok.yml
+      --url=micrometrical-patronymically-jarvis.ngrok-free.dev
+      host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
