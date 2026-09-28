@@ -1,4 +1,16 @@
 services:
+  keycloak:
+    image: harbor-registry.dataphion.com/iidrak/keycloak:1.1.4-arm64
+    ports:
+      - "8080:8080"
+    environment:
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - ./keycloak-data:/opt/keycloak/data
+    command: start --hostname-strict=false
+
   spark:
     image: apache/spark:4.0.0
     user: root
@@ -46,25 +58,7 @@ services:
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
       - ./init-scripts/postgres:/docker-entrypoint-initdb.d
-
-  chromadb:
-    image: chromadb/chroma:1.5.3
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./chromadb-data:/data
-
-  keycloak:
-    image: harbor-registry.dataphion.com/iidrak/keycloak:1.1.4-arm64
-    ports:
-      - "8080:8080"
-    environment:
-      KC_HTTP_ENABLED: "true"
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
-    volumes:
-      - ./keycloak-data:/opt/keycloak/data
-    command: start --hostname-strict=false
+    command: postgres -c shared_preload_libraries=pg_stat_statements
 
   ngrok:
     image: ngrok/ngrok:latest
@@ -78,6 +72,67 @@ services:
       http
       --config=/var/lib/ngrok/ngrok.yml
       --url=micrometrical-patronymically-jarvis.ngrok-free.dev
+      --host-header=rewrite
       host.docker.internal:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  chromadb:
+    image: chromadb/chroma:1.5.3
+    container_name: local-chromadb
+    profiles: ["optional"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chromadb-data:/data
+
+  # ==============================================================================
+  # Local Catalog Connectors (Profile: "connectors")
+  # Start individually: docker compose up -d <service_name>
+  # Start all connectors: docker compose --profile connectors up -d
+  # ==============================================================================
+
+  mysql:
+    image: mysql:8.0
+    container_name: local-mysql
+    profiles: ["connectors"]
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: testdb
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+
+  mongodb:
+    image: mongo:7.0
+    container_name: local-mongodb
+    profiles: ["connectors"]
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_DATABASE: testdb
+    volumes:
+      - ./mongodb-data:/data/db
+
+  mssql:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    container_name: local-mssql
+    profiles: ["connectors"]
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Password@123"
+      MSSQL_PID: "Developer"
+    volumes:
+      - ./mssql-data:/var/opt/mssql
+
+  presto:
+    image: prestodb/presto:latest
+    container_name: local-presto
+    profiles: ["connectors"]
+    ports:
+      - "8089:8080"
