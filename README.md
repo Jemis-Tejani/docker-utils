@@ -30,6 +30,7 @@ This stack provides all local backing services required for development and test
     - [MongoDB 7.0](#mongodb-70)
     - [MSSQL (Azure SQL Edge)](#mssql-azure-sql-edge)
     - [PrestoDB](#prestodb)
+    - [Trino](#trino)
     - [SQLite (In-Memory)](#sqlite-in-memory)
 - [Hermes Frontend GUI Connector Configuration](#hermes-frontend-gui-connector-configuration)
 - [Data Persistence & Volumes](#data-persistence--volumes)
@@ -58,7 +59,8 @@ This stack provides all local backing services required for development and test
 │ • Spark Connect (Port 15002) ││   └─► Ollama:11434       ││ • MongoDB (Port 27017)       │
 │ • Redis (Port 6379)          ││ • ChromaDB (Port 8000)   ││ • MSSQL (Port 1433)          │
 │ • Postgres+pgvector (5432)   ││   (Profile: "optional")  ││ • Presto (Port 8089)         │
-│ • Local Registry (Port 5001) ││                          ││ • SQLite (In-Memory / Port 0)│
+│ • Local Registry (Port 5001) ││                          ││ • Trino (Port 8082)          │
+│                              ││                          ││ • SQLite (In-Memory / Port 0)│
 └──────────────────────────────┘└──────────────────────────┘└──────────────────────────────┘
 ```
 
@@ -69,7 +71,7 @@ This stack provides all local backing services required for development and test
 1. **Docker Desktop** (Engine 20.10+ and Docker Compose V2 plugin).
 2. **Apple Silicon (M1/M2/M3/M4) or Intel Mac / Linux** with at least 8 GB RAM allocated to Docker.
 3. **Ollama** installed on the host machine running at `localhost:11434` (if testing local LLMs via ngrok).
-4. Free local ports: `8080`, `15002`, `4040`, `6379`, `5001`, `5432`, `4041` (plus `3307`, `27017`, `1433`, `8089`, `8000` when connectors/ChromaDB are started).
+4. Free local ports: `8080`, `15002`, `4040`, `6379`, `5001`, `5432`, `4041` (plus `3307`, `27017`, `1433`, `8089`, `8082`, `8000` when connectors/ChromaDB are started).
 
 ---
 
@@ -127,6 +129,7 @@ docker compose up -d mysql      # MySQL only (Port 3307)
 docker compose up -d mongodb    # MongoDB only (Port 27017)
 docker compose up -d mssql      # MS SQL Server only (Port 1433)
 docker compose up -d presto     # Presto query engine only (Port 8089)
+docker compose up -d trino      # Trino query engine only (Port 8082)
 
 # Stop all connectors
 docker compose --profile connectors down
@@ -152,6 +155,7 @@ docker compose stop mysql
 | **mongodb** | `local-mongodb` | `connectors` | `mongo:7.0` | `27017` | `27017` | `./mongodb-data` | MongoDB 7.0 Document Store Connector |
 | **mssql** | `local-mssql` | `connectors` | `mcr.microsoft.com/azure-sql-edge:latest` | `1433` | `1433` | `./mssql-data` | MS SQL Server (Azure SQL Edge Developer) |
 | **presto** | `local-presto` | `connectors` | `prestodb/presto:latest` | `8089` | `8080` | None | PrestoDB Distributed SQL Query Engine |
+| **trino** | `local-trino` | `connectors` | `trinodb/trino:latest` | `8082` | `8080` | None | Trino Distributed SQL Query Engine |
 
 ---
 
@@ -240,6 +244,13 @@ docker compose stop mysql
 - **Catalog:** `system` (or `memory`, `tpch`, `tpcds`)
 - **Purpose:** Distributed SQL query engine across heterogeneous data sources.
 
+#### Trino
+- **Container Port:** `8080` ➔ **Host Port:** `8082` *(ports 8080, 8081, 8089 are reserved)*
+- **User / Password:** `admin` / *(None)*
+- **Catalog:** `system` (or `tpch`, `tpcds`, `memory`)
+- **Purpose:** Fast, distributed SQL query engine for big data and lakehouses.
+- **Storage:** Ephemeral in-container storage (no host bind mount needed).
+
 #### SQLite (In-Memory)
 - **Mode:** In-Memory (`:memory:`)
 - **Host / Port:** `localhost` / `0`
@@ -259,6 +270,7 @@ When testing or creating connector configurations under **Settings ➔ Connector
 | **MongoDB** | `host.docker.internal` | `27017` | `root` | `rootpassword` | `testdb` | ✅ Passed (All Green) | Mongo 7.0 standard auth |
 | **MSSQL Consumer** | `host.docker.internal` | `1433` | `sa` | `Password@123` | `master` | ✅ Passed (All Green) | Azure SQL Edge Developer edition |
 | **Presto** | `host.docker.internal` | `8089` | `presto` | *(leave blank)* | Catalog: `system` | ✅ Passed (All Green) | Default catalog `system` |
+| **Trino** | `host.docker.internal` / `localhost` | `8082` | `admin` | *(leave blank)* | Catalog: `system` (or `tpch`) | ✅ Passed (All Green) | Default catalog `system` or `tpch` |
 | **SQLite** | `localhost` | `0` | *(leave blank)* | *(leave blank)* | `main` | ✅ Passed (All Green) | In-memory mode (no files required) |
 | **ChromaDB** *(AI Studio)* | `host.docker.internal` | `8000` | *(None)* | *(None)* | Default collection | ✅ Active | For RAG & AI Agent vector stores |
 
@@ -314,8 +326,8 @@ docker compose pull
 
 ### Common Issues
 
-1. **Port conflict on port 8080:**  
-   Keycloak uses port `8080`. For this reason, Presto's internal port `8080` is mapped to host port **`8089`** to prevent port collisions.
+1. **Port conflict on port 8080 / 8081 / 8089:**  
+   Keycloak uses port `8080`, OpenMetadata Ingestion uses `8081`, and Presto uses `8089`. Trino's internal port `8080` is therefore mapped to host port **`8082`** to prevent port collisions.
 2. **Postgres `pg_stat_statements` error:**  
    PostgreSQL requires `shared_preload_libraries=pg_stat_statements` at launch time. This is handled by the `command` attribute in `docker-compose.yml`.
 3. **ngrok Ollama 403 Forbidden:**  
