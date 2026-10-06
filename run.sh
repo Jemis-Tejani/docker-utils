@@ -27,7 +27,7 @@ docker run -d \
   -e KC_HTTP_ENABLED=true \
   -e KEYCLOAK_ADMIN=admin \
   -e KEYCLOAK_ADMIN_PASSWORD=admin \
-  harbor-registry.dataphion.com/iidrak/keycloak:1.1.4-arm64 \
+  harbor-registry.dataphion.com/iidrak/keycloak:latest-arm64 \
   start \
   --hostname-strict=false
 

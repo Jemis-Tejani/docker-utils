@@ -32,6 +32,7 @@ This stack provides all local backing services required for development and test
     - [PrestoDB](#prestodb)
     - [Trino](#trino)
     - [SQLite (In-Memory)](#sqlite-in-memory)
+    - [Sybase ASE 16.0](#sybase-ase-160)
 - [Hermes Frontend GUI Connector Configuration](#hermes-frontend-gui-connector-configuration)
 - [Data Persistence & Volumes](#data-persistence--volumes)
 - [Maintenance & Troubleshooting](#maintenance--troubleshooting)
@@ -60,6 +61,7 @@ This stack provides all local backing services required for development and test
 │ • Redis (Port 6379)          ││ • ChromaDB (Port 8000)   ││ • MSSQL (Port 1433)          │
 │ • Postgres+pgvector (5432)   ││   (Profile: "optional")  ││ • Presto (Port 8089)         │
 │ • Local Registry (Port 5001) ││                          ││ • Trino (Port 8082)          │
+│                              ││                          ││ • Sybase (Port 5002)         │
 │                              ││                          ││ • SQLite (In-Memory / Port 0)│
 └──────────────────────────────┘└──────────────────────────┘└──────────────────────────────┘
 ```
@@ -71,7 +73,7 @@ This stack provides all local backing services required for development and test
 1. **Docker Desktop** (Engine 20.10+ and Docker Compose V2 plugin).
 2. **Apple Silicon (M1/M2/M3/M4) or Intel Mac / Linux** with at least 8 GB RAM allocated to Docker.
 3. **Ollama** installed on the host machine running at `localhost:11434` (if testing local LLMs via ngrok).
-4. Free local ports: `8080`, `15002`, `4040`, `6379`, `5001`, `5432`, `4041` (plus `3307`, `27017`, `1433`, `8089`, `8082`, `8000` when connectors/ChromaDB are started).
+4. Free local ports: `8080`, `15002`, `4040`, `6379`, `5001`, `5432`, `4041` (plus `3307`, `27017`, `1433`, `8089`, `8082`, `5002`, `8000` when connectors/ChromaDB are started).
 
 ---
 
@@ -130,6 +132,7 @@ docker compose up -d mongodb    # MongoDB only (Port 27017)
 docker compose up -d mssql      # MS SQL Server only (Port 1433)
 docker compose up -d presto     # Presto query engine only (Port 8089)
 docker compose up -d trino      # Trino query engine only (Port 8082)
+docker compose up -d sybase     # Sybase ASE 16.0 only (Port 5002)
 
 # Stop all connectors
 docker compose --profile connectors down
@@ -144,7 +147,7 @@ docker compose stop mysql
 
 | Service | Container Name | Profile | Image | Host Port | In-Container Port | Volume / Data Dir | Description |
 |---|---|---|---|---|---|---|---|
-| **keycloak** | `keycloak` | *(default)* | `harbor-registry.dataphion.com/iidrak/keycloak:1.1.4-arm64` | `8080` | `8080` | `./keycloak-data` | Identity & Access Management (SSO) |
+| **keycloak** | `keycloak` | *(default)* | `harbor-registry.dataphion.com/iidrak/keycloak:latest-arm64` | `8080` | `8080` | `./keycloak-data` | Identity & Access Management (SSO) |
 | **spark** | `spark` | *(default)* | `apache/spark:4.0.0` | `15002`, `4040` | `15002`, `4040` | `./spark-data`, `/var/folders` | Spark Connect Server & Web UI |
 | **redis** | `redis` | *(default)* | `redis:8.8.0` | `6379` | `6379` | `./redis-data` | In-memory key-value store with AOF |
 | **registry** | `registry` | *(default)* | `registry:2` | `5001` | `5000` | `./registry-data` | Local private Docker V2 image registry |
@@ -156,6 +159,7 @@ docker compose stop mysql
 | **mssql** | `local-mssql` | `connectors` | `mcr.microsoft.com/azure-sql-edge:latest` | `1433` | `1433` | `./mssql-data` | MS SQL Server (Azure SQL Edge Developer) |
 | **presto** | `local-presto` | `connectors` | `prestodb/presto:latest` | `8089` | `8080` | None | PrestoDB Distributed SQL Query Engine |
 | **trino** | `local-trino` | `connectors` | `trinodb/trino:latest` | `8082` | `8080` | None | Trino Distributed SQL Query Engine |
+| **sybase** | `local-sybase` | `connectors` | `datagrip/sybase:16.0` | `5002` | `5000` | None *(ephemeral)* | SAP Sybase Adaptive Server Enterprise (ASE) 16.0 |
 
 ---
 
@@ -257,6 +261,14 @@ docker compose stop mysql
 - **Database Name:** `main`
 - **Purpose:** Zero-container, zero-file lightweight testing for Hermes Data Catalog.
 
+#### Sybase ASE 16.0
+- **Container Port:** `5000` ➔ **Host Port:** `5002` *(ports 5000 and 5001 are reserved for macOS AirPlay and Docker Registry)*
+- **Database:** `master`
+- **User / Password:** `sa` / `myPassword`
+- **Platform Emulation:** `linux/amd64` (uses Apple Silicon Rosetta 2 translation)
+- **Data Persistence:** None *(Ephemeral container storage managed by Docker)*
+- **Purpose:** SAP Sybase Adaptive Server Enterprise (ASE) testing with `jconn4-16.3.4.jar` JDBC driver.
+
 ---
 
 ## Hermes Frontend GUI Connector Configuration
@@ -271,6 +283,7 @@ When testing or creating connector configurations under **Settings ➔ Connector
 | **MSSQL Consumer** | `host.docker.internal` | `1433` | `sa` | `Password@123` | `master` | ✅ Passed (All Green) | Azure SQL Edge Developer edition |
 | **Presto** | `host.docker.internal` | `8089` | `presto` | *(leave blank)* | Catalog: `system` | ✅ Passed (All Green) | Default catalog `system` |
 | **Trino** | `host.docker.internal` / `localhost` | `8082` | `admin` | *(leave blank)* | Catalog: `system` (or `tpch`) | ✅ Passed (All Green) | Default catalog `system` or `tpch` |
+| **SyBase** | `host.docker.internal` | `5002` | `sa` | `myPassword` | `master` | ✅ Configured | SAP Sybase ASE 16.0 container |
 | **SQLite** | `localhost` | `0` | *(leave blank)* | *(leave blank)* | `main` | ✅ Passed (All Green) | In-memory mode (no files required) |
 | **ChromaDB** *(AI Studio)* | `host.docker.internal` | `8000` | *(None)* | *(None)* | Default collection | ✅ Active | For RAG & AI Agent vector stores |
 
@@ -334,3 +347,5 @@ docker compose pull
    Ensure `--host-header=rewrite` is present in the `ngrok` command line in `docker-compose.yml` so Ollama's local DNS rebinding protection accepts forwarded requests.
 4. **Connection Refused in OpenMetadata Ingestion:**  
    Verify you are using `host.docker.internal` rather than `localhost` in the Hermes GUI connector form.
+5. **Port conflict on port 5000 (macOS AirPlay / ControlCenter):**  
+   On macOS, `ControlCenter` (AirPlay Receiver) listens on port `5000` by default, and local Registry uses port `5001`. Therefore, Sybase's internal port `5000` is mapped to host port **`5002`** (`5002:5000`) to prevent any port collisions.

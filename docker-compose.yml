@@ -1,6 +1,6 @@
 services:
   keycloak:
-    image: harbor-registry.dataphion.com/iidrak/keycloak:1.1.4-arm64
+    image: harbor-registry.dataphion.com/iidrak/keycloak:latest-arm64
     ports:
       - "8080:8080"
     environment:
@@ -143,3 +143,12 @@ services:
     profiles: ["connectors"]
     ports:
       - "8082:8080"
+
+  sybase:
+    image: datagrip/sybase:16.0
+    container_name: local-sybase
+    platform: linux/amd64
+    profiles: ["connectors"]
+    ports:
+      - "5002:5000"
+
