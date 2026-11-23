@@ -79,13 +79,27 @@ This stack provides all local backing services required for development and test
 
 ## Quick Start Guide
 
-### 0. Environment Configuration
+### 0. Environment & Secrets Configuration
 
-Copy the environment template and ensure your `NGROK_AUTHTOKEN` is set:
+Follow these preparation steps before starting the services for the first time:
 
+#### Step 0.1: Copy Environment Template
+Copy the environment template and customize credentials (e.g. set your `NGROK_AUTHTOKEN` if using ngrok):
 ```bash
 cp .env.example .env
 ```
+
+#### Step 0.2: Configure Spark CatalogRegister Secrets (Required for Spark Catalogs)
+Spark Lakehouse automatically merges committed base configuration with an uncommitted local secret overlay. Copy the example file and supply your Keycloak client credentials from Hermes CMS:
+```bash
+cp spark-conf/spark-defaults.local.conf.example spark-conf/spark-defaults.local.conf
+```
+> **Important:** Without `spark-defaults.local.conf`, the Spark Lakehouse container will boot, but **CatalogRegister and Keycloak catalog authentication will fail**. Fill in `spark.nexaris.keycloak.token.url`, `client.id`, and `client.secret` from CMS App Config.
+
+#### Step 0.3: Ensure Spark Jars are Present
+Verify required jars exist in `spark-jars/` (see [`spark-jars/README.md`](spark-jars/README.md) for instructions to build or copy jars from `spark-cluster`).
+
+---
 
 ### 1. Core Services (Default)
 
@@ -98,8 +112,11 @@ docker compose up -d
 # View live logs for all core services
 docker compose logs -f
 
-# View live logs for a specific service
-docker compose logs -f spark
+# View live logs for a specific service (by Compose service name)
+docker compose logs -f spark-lakehouse
+
+# Or view live logs directly by container name
+docker logs -f local-spark-lakehouse
 
 # Stop all core services
 docker compose down
@@ -155,19 +172,19 @@ docker compose stop mysql
 
 | Service | Container Name | Profile | Image | Host Port | In-Container Port | Volume / Data Dir | Description |
 |---|---|---|---|---|---|---|---|
-| **keycloak** | `keycloak` | *(default)* | `harbor-registry.dataphion.com/iidrak/keycloak:latest-arm64` | `8080` | `8080` | `./keycloak-data` | Identity & Access Management (SSO) |
-| **spark** | `spark` | *(default)* | `apache/spark:4.0.0` | `15002`, `4040` | `15002`, `4040` | `./spark-data`, `/var/folders` | Spark Connect Server & Web UI |
-| **redis** | `redis` | *(default)* | `redis:8.8.0` | `6379` | `6379` | `./redis-data` | In-memory key-value store with AOF |
-| **registry** | `registry` | *(default)* | `registry:2` | `5001` | `5000` | `./registry-data` | Local private Docker V2 image registry |
-| **pgvector** | `pgvector` | *(default)* | `pgvector/pgvector:pg16` | `5432` | `5432` | `./postgres-data`, `./init-scripts/postgres` | PostgreSQL 16 + pgvector + pg_stat_statements |
-| **ngrok** | `ngrok` | *(default)* | `ngrok/ngrok:latest` | `4041` | `4040` | `./ngrok-data` | Tunnels host Ollama (:11434) to public URL |
-| **chromadb** | `local-chromadb` | `optional` | `chromadb/chroma:1.5.3` | `8000` | `8000` | `./chromadb-data` | Local Vector Database for RAG & Embeddings |
-| **mysql** | `local-mysql` | `connectors` | `mysql:8.0` | `3307` | `3306` | `./mysql-data` | MySQL 8.0 Catalog Connector |
-| **mongodb** | `local-mongodb` | `connectors` | `mongo:7.0` | `27017` | `27017` | `./mongodb-data` | MongoDB 7.0 Document Store Connector |
-| **mssql** | `local-mssql` | `connectors` | `mcr.microsoft.com/azure-sql-edge:latest` | `1433` | `1433` | `./mssql-data` | MS SQL Server (Azure SQL Edge Developer) |
-| **presto** | `local-presto` | `connectors` | `prestodb/presto:latest` | `8089` | `8080` | None | PrestoDB Distributed SQL Query Engine |
-| **trino** | `local-trino` | `connectors` | `trinodb/trino:latest` | `8082` | `8080` | None | Trino Distributed SQL Query Engine |
-| **sybase** | `local-sybase` | `connectors` | `datagrip/sybase:16.0` | `5002` | `5000` | None *(ephemeral)* | SAP Sybase Adaptive Server Enterprise (ASE) 16.0 |
+| **keycloak** | `local-keycloak-sso` | *(default)* | `harbor-registry.dataphion.com/iidrak/keycloak:latest-arm64` | `8080` | `8080` | `./keycloak-data` | Identity & Access Management (SSO) |
+| **spark-lakehouse** | `local-spark-lakehouse` | *(default)* | `apache/spark:4.0.0` | `15002`, `7077`, `8085`, `4040` | `15002`, `7077`, `8080`, `4040` | `./spark-data`, `./spark-conf`, `./spark-jars` | Hermes Spark Connect + Master/Worker (replaces old lite `local-spark`) |
+| **redis** | `local-redis-cache` | *(default)* | `redis:8.8.0` | `6379` | `6379` | `./redis-data` | In-memory key-value store with AOF |
+| **registry** | `local-docker-registry` | *(default)* | `registry:2` | `5001` | `5000` | `./registry-data` | Local private Docker V2 image registry |
+| **pgvector** | `local-postgres-vector` | *(default)* | `pgvector/pgvector:pg16` | `5432` | `5432` | `./postgres-data`, `./init-scripts/postgres` | PostgreSQL 16 + pgvector + pg_stat_statements |
+| **ngrok** | `local-ngrok-tunnel` | *(default)* | `ngrok/ngrok:latest` | `4041` | `4040` | `./ngrok-data` | Tunnels host Ollama (:11434) to public URL |
+| **chromadb** | `local-chromadb-vectordb` | `optional` | `chromadb/chroma:1.5.3` | `8000` | `8000` | `./chromadb-data` | Local Vector Database for RAG & Embeddings |
+| **mysql** | `local-mysql-connector` | `connectors` | `mysql:8.0` | `3307` | `3306` | `./mysql-data` | MySQL 8.0 Catalog Connector |
+| **mongodb** | `local-mongodb-connector` | `connectors` | `mongo:7.0` | `27017` | `27017` | `./mongodb-data` | MongoDB 7.0 Document Store Connector |
+| **mssql** | `local-mssql-connector` | `connectors` | `mcr.microsoft.com/azure-sql-edge:latest` | `1433` | `1433` | `./mssql-data` | MS SQL Server (Azure SQL Edge Developer) |
+| **presto** | `local-presto-engine` | `connectors` | `prestodb/presto:latest` | `8089` | `8080` | None | PrestoDB Distributed SQL Query Engine |
+| **trino** | `local-trino-engine` | `connectors` | `trinodb/trino:latest` | `8082` | `8080` | None | Trino Distributed SQL Query Engine |
+| **sybase** | `local-sybase-connector` | `connectors` | `datagrip/sybase:16.0` | `5002` | `5000` | None *(ephemeral)* | SAP Sybase Adaptive Server Enterprise (ASE) 16.0 |
 
 ---
 
@@ -181,11 +198,14 @@ docker compose stop mysql
 - **Purpose:** Manages authentication, user federation, enterprise realms, and OAuth2/OIDC clients for Hermes CMS.
 - **Data Persistence:** `./keycloak-data`
 
-#### Spark Connect & Web UI
+#### Spark Lakehouse (Connect + Master/Worker)
 - **Spark Connect Endpoint:** `sc://localhost:15002`
-- **Spark Web UI:** [http://localhost:4040](http://localhost:4040)
-- **Purpose:** Executes distributed SQL queries, lakehouse jobs, and DataFrame operations via Spark Connect Client (`SparkSession.builder.remote("sc://localhost:15002").getOrCreate()`).
-- **Data Persistence:** `./spark-data` (warehouse, local scratch, Ivy JAR cache) and host `/var/folders` mount for macOS temp file access.
+- **Spark Master UI:** [http://localhost:8085](http://localhost:8085)
+- **Spark App UI:** [http://localhost:4040](http://localhost:4040)
+- **Purpose:** Local Hermes Spark for SQL Editor / Connect (`SparkSession.builder.remote("sc://localhost:15002").getOrCreate()`), with Iceberg/Delta jars and CatalogRegister.
+- **Start/Stop:** Docker Desktop, or `docker compose up -d spark-lakehouse` / `docker compose stop spark-lakehouse`
+- **Data Persistence:** `./spark-data`, config in `./spark-conf`, jars in `./spark-jars`.
+  > **Note (Mac-Only Mount):** The volume mount `/var/folders:/var/folders` in `docker-compose.yml` is **macOS-specific** (mounts macOS host temporary directories for local file exchanges). If running on **Linux**, this mount is not needed and can be safely commented out or removed.
 
 #### Redis (Cache & Queues)
 - **Endpoint:** `localhost:6379`
@@ -210,10 +230,10 @@ docker compose stop mysql
 - **Data Persistence:** `./postgres-data`
 
 #### ngrok Tunnel (Ollama LLM)
-- **Public URL:** `https://micrometrical-patronymically-jarvis.ngrok-free.dev`
+- **Public URL:** `https://your-domain.ngrok-free.dev` (or assigned dynamic URL)
 - **Inspector Web UI:** [http://localhost:4041](http://localhost:4041)
 - **Target:** `host.docker.internal:11434` (Ollama running locally on host)
-- **Configuration:** Declarative endpoints configured in `./ngrok-data/ngrok.yml` using `command: start --all --config=/var/lib/ngrok/ngrok.yml`.
+- **Configuration:** Declarative endpoints configured in `./ngrok-data/ngrok.yml` (for custom/reserved domains, copy to `./ngrok-data/ngrok.local.yml` and set `NGROK_CONFIG` in `.env`).
 - **Traffic Policy:** Rewrites incoming HTTP `Host` header to `localhost:11434` inside `ngrok.yml` (replaces deprecated `--host-header=rewrite`) to prevent Ollama from rejecting requests with `403 Forbidden` / `Invalid Host Header`.
 - `extra_hosts: ["host.docker.internal:host-gateway"]`: Ensures container can reliably resolve host machine networking across Docker Desktop releases.
 
@@ -271,8 +291,8 @@ docker compose stop mysql
 
 #### Sybase ASE 16.0
 - **Container Port:** `5000` ➔ **Host Port:** `5002` *(ports 5000 and 5001 are reserved for macOS AirPlay and Docker Registry)*
-- **Database:** `master`
-- **User / Password:** `sa` / `myPassword`
+- **Database:** `master` *(configurable via `SYBASE_DB` in `.env`)*
+- **User / Password:** `sa` / `myPassword` *(configurable via `SYBASE_USER` / `SYBASE_PASSWORD` in `.env`)*
 - **Platform Emulation:** `linux/amd64` (uses Apple Silicon Rosetta 2 translation)
 - **Data Persistence:** None *(Ephemeral container storage managed by Docker)*
 - **Purpose:** SAP Sybase Adaptive Server Enterprise (ASE) testing with `jconn4-16.3.4.jar` JDBC driver.
@@ -357,3 +377,5 @@ docker compose pull
    Verify you are using `host.docker.internal` rather than `localhost` in the Hermes GUI connector form.
 5. **Port conflict on port 5000 (macOS AirPlay / ControlCenter):**  
    On macOS, `ControlCenter` (AirPlay Receiver) listens on port `5000` by default, and local Registry uses port `5001`. Therefore, Sybase's internal port `5000` is mapped to host port **`5002`** (`5002:5000`) to prevent any port collisions.
+6. **Linux Setup & `/var/folders` mount:**  
+   The volume mount `/var/folders:/var/folders` under `spark-lakehouse` is specific to **macOS** temporary directories (`$TMPDIR`). On Linux hosts, this path does not exist. If you are on Linux, comment out or remove `- /var/folders:/var/folders` from `docker-compose.yml`.

@@ -10,3 +10,17 @@ mssql-data
 .env
 .env.local
 ngrok-data/auth-config.yml
+
+# Local lakehouse connector/plugin jars (copy from spark-cluster build; do not commit binaries)
+spark-jars/*.jar
+!spark-jars/README.md
+
+# Local Keycloak/Strapi secrets for CatalogRegister (never commit)
+spark-conf/spark-defaults.local.conf
+
+# Local ngrok config with personal domains / secrets
+ngrok-data/*.local.yml
+ngrok-data/ngrok.local.yml
+
+# macOS metadata
+.DS_Store

@@ -12,59 +12,84 @@ x-logging: &default-logging
 services:
   keycloak:
     image: harbor-registry.dataphion.com/iidrak/keycloak:latest-arm64
-    container_name: local-keycloak
+    container_name: local-keycloak-sso
     ports:
       - "8080:8080"
     environment:
       KC_HTTP_ENABLED: "true"
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      # Cap JVM heap to 384MB max (prevents Keycloak from taking 1GB+ RAM locally)
-      JAVA_OPTS_APPEND: "-Xms64m -Xmx384m -XX:MaxMetaspaceSize=192m"
+      # Tuned for local dev under 512m limit: Heap 256MB max, Metaspace 160MB max, Thread stack 512KB
+      JAVA_OPTS_APPEND: "-Xms64m -Xmx256m -XX:MetaspaceSize=96m -XX:MaxMetaspaceSize=160m -Xss512k"
     mem_limit: 512m
     volumes:
       - ./keycloak-data:/opt/keycloak/data
     command: start --hostname-strict=false
     logging: *default-logging
 
-  spark:
+  spark-lakehouse:
     image: apache/spark:4.0.0
-    container_name: local-spark
+    container_name: local-spark-lakehouse
+    hostname: spark-lakehouse
     user: root
+    restart: unless-stopped
     ports:
       - "15002:15002"
+      - "7077:7077"
+      - "8085:8080"
       - "4040:4040"
     environment:
-      SPARK_LOCAL_DIRS: /opt/spark/persistent/local
-      SPARK_DRIVER_MEMORY: "512m"
-    mem_limit: 1024m
+      SPARK_MASTER_HOST: 0.0.0.0
+      SPARK_LOCAL_IP: 0.0.0.0
+      SPARK_LOCAL_HOSTNAME: spark-lakehouse
+      # Local-dev caps (does not affect production spark-cluster image/charts).
+      # Concurrent JVM heaps = daemon×2 + driver + executor must stay under ~80% of mem_limit.
+      # Spark 4 requires executor memory >= ~450m → use 512m. Tuned for Hermes SQL Editor / Connect.
+      SPARK_DRIVER_MEMORY: 512m
+      SPARK_WORKER_CORES: "1"
+      SPARK_WORKER_MEMORY: 512m
+      SPARK_DAEMON_MEMORY: 192m
+      SPARK_EXECUTOR_MEMORY: 512m
+      SPARK_EXECUTOR_CORES: "1"
+    extra_hosts:
+      - "spark-lakehouse:127.0.0.1"
+      - "host.docker.internal:host-gateway"
+    # 1792m ≈ heap sum (192+192+512+512=1408) + ~25% JVM/native headroom (was 2560m Xmx vs 2048m → OOM risk)
+    mem_limit: 1792m
+    cpus: 1.5
+
+
     volumes:
-      - ./spark-data:/opt/spark/persistent
+      - ./spark-data:/app/spark-iidrak
+      # Base + optional gitignored local overlay (Keycloak secrets) merged by entrypoint
+      - ./spark-conf:/opt/hermes-spark-conf:ro
+      - ./spark-jars:/opt/spark/hermes-jars:ro
+      - ./spark-entrypoint.sh:/entrypoint.sh:ro
+      # macOS-only: host temporary folder mount (comment out on Linux)
       - /var/folders:/var/folders
-    command: >
-      /opt/spark/bin/spark-submit
-      --class org.apache.spark.sql.connect.service.SparkConnectServer
-      --driver-memory 512m
-      --conf spark.sql.warehouse.dir=/opt/spark/persistent/warehouse
-      --conf spark.local.dir=/opt/spark/persistent/local
-      --conf spark.jars.ivy=/opt/spark/persistent/ivy
-      local:///opt/spark/jars/spark-connect_2.13-4.0.0.jar
+    command: /entrypoint.sh
     logging: *default-logging
 
   redis:
     image: redis:8.8.0
-    container_name: local-redis
+    container_name: local-redis-cache
     ports:
       - "6379:6379"
     mem_limit: 64m
     volumes:
       - ./redis-data:/data
     command: redis-server --appendonly yes --maxmemory 48mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 3s
     logging: *default-logging
 
   registry:
     image: registry:2
-    container_name: local-registry
+    container_name: local-docker-registry
     ports:
       - "5001:5000"
     mem_limit: 128m
@@ -76,7 +101,7 @@ services:
 
   pgvector:
     image: pgvector/pgvector:pg16
-    container_name: local-pgvector
+    container_name: local-postgres-vector
     ports:
       - "5432:5432"
     mem_limit: 256m
@@ -93,11 +118,17 @@ services:
       -c shared_buffers=64MB
       -c work_mem=4MB
       -c max_connections=50
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     logging: *default-logging
 
   ngrok:
     image: ngrok/ngrok:latest
-    container_name: local-ngrok
+    container_name: local-ngrok-tunnel
     ports:
       - "4041:4040"
     mem_limit: 64m
@@ -105,14 +136,14 @@ services:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
     volumes:
       - ./ngrok-data:/var/lib/ngrok
-    command: start --all --config=/var/lib/ngrok/ngrok.yml
+    command: start --all --config=${NGROK_CONFIG:-/var/lib/ngrok/ngrok.yml}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     logging: *default-logging
 
   chromadb:
     image: chromadb/chroma:1.5.3
-    container_name: local-chromadb
+    container_name: local-chromadb-vectordb
     profiles: ["optional"]
     ports:
       - "8000:8000"
@@ -129,7 +160,7 @@ services:
 
   mysql:
     image: mysql:8.0
-    container_name: local-mysql
+    container_name: local-mysql-connector
     profiles: ["connectors"]
     ports:
       - "3307:3306"
@@ -144,7 +175,7 @@ services:
 
   mongodb:
     image: mongo:7.0
-    container_name: local-mongodb
+    container_name: local-mongodb-connector
     profiles: ["connectors"]
     ports:
       - "27017:27017"
@@ -160,7 +191,7 @@ services:
 
   mssql:
     image: mcr.microsoft.com/azure-sql-edge:latest
-    container_name: local-mssql
+    container_name: local-mssql-connector
     profiles: ["connectors"]
     ports:
       - "1433:1433"
@@ -176,7 +207,7 @@ services:
 
   presto:
     image: prestodb/presto:latest
-    container_name: local-presto
+    container_name: local-presto-engine
     profiles: ["connectors"]
     ports:
       - "8089:8080"
@@ -185,7 +216,7 @@ services:
 
   trino:
     image: trinodb/trino:latest
-    container_name: local-trino
+    container_name: local-trino-engine
     profiles: ["connectors"]
     ports:
       - "8082:8080"
@@ -194,10 +225,14 @@ services:
 
   sybase:
     image: datagrip/sybase:16.0
-    container_name: local-sybase
+    container_name: local-sybase-connector
     platform: linux/amd64
     profiles: ["connectors"]
     ports:
       - "5002:5000"
     mem_limit: 512m
+    environment:
+      SYBASE_USER: ${SYBASE_USER}
+      SYBASE_PASSWORD: ${SYBASE_PASSWORD}
+      SYBASE_DB: ${SYBASE_DB}
     logging: *default-logging

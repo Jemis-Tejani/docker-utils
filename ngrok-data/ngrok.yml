@@ -3,7 +3,10 @@ agent:
     web_addr: 0.0.0.0:4040
 endpoints:
   - name: ollama
-    url: https://micrometrical-patronymically-jarvis.ngrok-free.dev
+    # Default: ngrok automatically assigns a free/random URL for your account.
+    # If you have a reserved custom/static domain, uncomment and specify it here
+    # (or create ngrok-data/ngrok.local.yml for local overrides):
+    # url: https://your-domain.ngrok-free.dev
     upstream:
       url: http://host.docker.internal:11434
     traffic_policy:

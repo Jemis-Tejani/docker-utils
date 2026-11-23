@@ -1,0 +1,5 @@
+# Copy to spark-defaults.local.conf and fill from hermes-cms App Config → Keycloak
+# (api::app-config keycloak_config / flow_config). This file is gitignored.
+spark.nexaris.keycloak.token.url=http://host.docker.internal:8080/realms/<realm>/protocol/openid-connect/token
+spark.nexaris.keycloak.client.id=cms-service
+spark.nexaris.keycloak.client.secret=<secret>
