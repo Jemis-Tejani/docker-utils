@@ -11,7 +11,7 @@ x-logging: &default-logging
 
 services:
   keycloak:
-    image: harbor-registry.dataphion.com/iidrak/keycloak:latest-arm64
+    image: hermes-keycloak:local-arm64
     container_name: local-keycloak-sso
     ports:
       - "8080:8080"

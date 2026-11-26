@@ -14,6 +14,7 @@ This stack provides all local backing services required for development and test
   - [1. Core Services (Default)](#1-core-services-default)
   - [2. Optional Services (ChromaDB)](#2-optional-services-chromadb)
   - [3. Local Catalog Connectors](#3-local-catalog-connectors)
+- [Service Image Updater (`hermes-service-updater.sh`)](#service-image-updater-hermes-service-updatersh)
 - [Services Matrix](#services-matrix)
 - [Service Details](#service-details)
   - [Core Services](#core-services)
@@ -168,11 +169,28 @@ docker compose stop mysql
 
 ---
 
+## Service Image Updater (`hermes-service-updater.sh`)
+
+Use `./hermes-service-updater.sh` for an interactive, menu-driven workflow to rebuild, update, and clean local **OpenMetadata** and **Keycloak** images on Apple Silicon (`linux/arm64`) without manually editing version numbers:
+
+```bash
+./hermes-service-updater.sh
+```
+
+- **Two-Level Interactive Menu:**
+  - **OpenMetadata:** `Update Ingestion Only`, `Update Server Only`, `Update Both Services`, or `Clean Only`
+  - **Keycloak:** `Update Keycloak` *(pulls `../hermes-keycloak-strapi-spi`, builds SPI & login theme jars, rebuilds `hermes-keycloak:local-arm64`, cleans git build artifacts, force-recreates the container)* or `Clean Only`
+- **Zero Hardcoded Versions:** Reads target image tags directly from `../hermes-openmetadata/docker/hermes/docker-compose.yml` and `./docker-compose.yml`.
+- **Automatic Storage Cleanup:** Removes older image versions, dangling `<none>` layers, and Docker build cache after updates.
+- **Data Safe:** Never removes Docker volumes or `./keycloak-data`.
+
+---
+
 ## Services Matrix
 
 | Service | Container Name | Profile | Image | Host Port | In-Container Port | Volume / Data Dir | Description |
 |---|---|---|---|---|---|---|---|
-| **keycloak** | `local-keycloak-sso` | *(default)* | `harbor-registry.dataphion.com/iidrak/keycloak:latest-arm64` | `8080` | `8080` | `./keycloak-data` | Identity & Access Management (SSO) |
+| **keycloak** | `local-keycloak-sso` | *(default)* | `hermes-keycloak:local-arm64` | `8080` | `8080` | `./keycloak-data` | Identity & Access Management (SSO) |
 | **spark-lakehouse** | `local-spark-lakehouse` | *(default)* | `apache/spark:4.0.0` | `15002`, `7077`, `8085`, `4040` | `15002`, `7077`, `8080`, `4040` | `./spark-data`, `./spark-conf`, `./spark-jars` | Hermes Spark Connect + Master/Worker (replaces old lite `local-spark`) |
 | **redis** | `local-redis-cache` | *(default)* | `redis:8.8.0` | `6379` | `6379` | `./redis-data` | In-memory key-value store with AOF |
 | **registry** | `local-docker-registry` | *(default)* | `registry:2` | `5001` | `5000` | `./registry-data` | Local private Docker V2 image registry |
@@ -195,8 +213,41 @@ docker compose stop mysql
 #### Keycloak (SSO / IAM)
 - **URL:** [http://localhost:8080](http://localhost:8080)
 - **Admin Credentials:** `admin` / `admin`
+- **Image:** `hermes-keycloak:local-arm64` *(built locally from `../hermes-keycloak-strapi-spi` — no registry push required)*
 - **Purpose:** Manages authentication, user federation, enterprise realms, and OAuth2/OIDC clients for Hermes CMS.
 - **Data Persistence:** `./keycloak-data`
+- **Quick Update (Recommended):** Run `./hermes-service-updater.sh` and select **`2) Keycloak`** ➔ **`1) Update Keycloak`**.
+- **Build / Update Locally (Manual Steps — Apple Silicon `linux/arm64`):**
+  ```bash
+  # 1. Pull latest changes and build both provider jars (SPI + login theme)
+  cd ../hermes-keycloak-strapi-spi
+  git pull
+  mvn -q clean package -DskipTests
+
+  THEME_STAGE=$(mktemp -d)
+  mkdir -p "$THEME_STAGE/theme" "$THEME_STAGE/META-INF"
+  cp -R login-theme/themes/. "$THEME_STAGE/theme/"
+  cp login-theme/META-INF/keycloak-themes.json "$THEME_STAGE/META-INF/"
+  find "$THEME_STAGE" -name ".DS_Store" -delete
+  (cd "$THEME_STAGE" && jar --create --file "$THEME_STAGE/nexaris-login-theme.jar" META-INF theme)
+  mv "$THEME_STAGE/nexaris-login-theme.jar" login-theme/nexaris-login-theme.jar
+  rm -rf "$THEME_STAGE"
+
+  # 2. Build the local arm64 image
+  DOCKER_BUILDKIT=1 docker buildx build \
+    --platform linux/arm64 \
+    --tag hermes-keycloak:local-arm64 \
+    --load \
+    .
+
+  # 3. (Optional) Discard compiled jar diffs in git
+  git checkout -- .
+
+  # 4. Recreate only the keycloak container (preserves ./keycloak-data)
+  cd ../docker-utils
+  docker compose up -d --force-recreate keycloak
+  docker image prune -f
+  ```
 
 #### Spark Lakehouse (Connect + Master/Worker)
 - **Spark Connect Endpoint:** `sc://localhost:15002`
